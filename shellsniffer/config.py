@@ -66,6 +66,7 @@ def _load_token() -> str:
     return TOKEN_PATH.read_text().strip()
 
 
-_migrate_old_data_dir()
+if "SHELLSNIFFER_DIR" not in os.environ:   # only the default folder inherits old data, never a custom one
+    _migrate_old_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 TOKEN = _load_token()

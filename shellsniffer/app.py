@@ -3,17 +3,22 @@
 Start:  python -m uvicorn shellsniffer.app:app --port 8765     (or simply start.ps1 / start.sh)
 
 Module overview
-    config        paths, environment variables, access token
-    db            SQLite connection, schema, migrations
+    app           this file: HTTP API, WebSocket, background workers' lifecycle
+    config        paths, environment variables, access token, data-dir migration
+    db            SQLite connection, schema, migrations, FTS5 indexes
     state         UI settings, worker status, live updates (broadcast)
-    ingest        storing commands and outputs reported by hooks / Atuin
-    atuin_import  background import from Atuin's history (+ atuin: the readers)
+    ingest        storing commands and outputs reported by hooks / Atuin / import
+    atuin         reading Atuin's history (Windows + WSL);  atuin_import: the import worker
     honeypot      per-shell plain-text logs (mode without Atuin)
-    documenter    Ollama clustering on request, ontology housekeeping (+ cluster: the model calls)
-    importer      batch import of collected shell dumps (upload)
+    importer      batch import of collected shell dumps (format detection)
+    ollama        the only Ollama client (chat, streaming, embeddings; honours "Ollama disabled")
+    cluster       one session -> domain, topic, title, ASD-STE100 summary (model or heuristic)
+    documenter    SniffMagic queue worker, ontology housekeeping
+    embeddings    vectors for commands and documentation, continuous shrooming worker
+    search        BM25 search and hybrid search (weighted RRF)
     ask           "ask the shroom": LLM answer grounded in the search hits (RAG)
-    search        BM25 full-text search + hybrid search (+ embeddings: Ollama vectors)
-    ontology      domains, projects, tools;  redact: secret filter
+    timerange     time-range validation and SQL conditions
+    ontology      domains, projects, tools;   redact: secret filter
 """
 import asyncio
 import json
@@ -25,14 +30,14 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, documenter, embeddings
+from . import db, documenter, embeddings, timerange
 from . import ontology as onto
 from . import search as search_mod
 from .atuin_import import atuin_worker, skip_history_until_now
 from .config import HONEYPOT_DIR, STATIC_DIR, TOKEN
 from .ingest import attach_output, ingest
-from .state import (broadcast, broadcast_status, clients, honeypot_active, save_setting, settings,
-                    status, status_info)
+from .state import (SETTING_KEYS, broadcast, broadcast_status, clients, honeypot_active, save_setting,
+                    settings, status, status_info)
 
 
 @asynccontextmanager
@@ -145,7 +150,7 @@ def get_search(q: str = "", limit: int = 50, start: float | None = None, end: fl
         if mode == "hybrid":
             return search_mod.hybrid_search(q, limit, start, end, semantic_weight)
         return search_mod.search(q, limit, start, end)
-    except search_mod.SearchError as e:
+    except (search_mod.SearchError, timerange.RangeError) as e:
         raise HTTPException(400, str(e))
     except EmbeddingError as e:
         raise HTTPException(503, str(e))
@@ -220,8 +225,10 @@ def export_md():
 
 # ---------------------------------------------------------------- Documentation (Ollama, on request only)
 def _check_range(start: float | None, end: float | None) -> None:
-    if start is not None and end is not None and start > end:
-        raise HTTPException(400, "time range: start is after end")
+    try:
+        timerange.check(start, end)
+    except timerange.RangeError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/cluster/preview")
@@ -271,9 +278,9 @@ async def post_consolidate():
 # ---------------------------------------------------------------- Settings (UI switches)
 def _ollama_switched(on: bool) -> None:
     """Ollama enabled/disabled: update the model status at once (disabled = no request at all)."""
-    from . import cluster
+    from . import ollama
     if on:
-        status["model"] = cluster.pick_model()
+        status["model"] = ollama.chat_model()
     else:
         status["model"] = None
         status["vectors"]["running"] = False
@@ -289,7 +296,7 @@ def get_settings():
 async def post_settings(request: Request):
     """``{"atuin", "honeypot", "vectorize", "dog", "ollama"}`` (booleans) – any key may be left out."""
     d = await read_payload(request)
-    for key in ("atuin", "honeypot", "vectorize", "dog", "ollama"):
+    for key in SETTING_KEYS:
         if key in d:
             value = d[key] in (True, 1, "1", "true", "on")
             if key == "atuin" and value and not settings["atuin"]:

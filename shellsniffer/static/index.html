@@ -176,6 +176,16 @@
   <p>The gear at the top right holds the general settings, saved on the server so shellSniffer always opens with them: <b>capture</b> with / without Atuin, the <b>honeypot log</b>, the <b>roaming dog</b> on/off, <b>continuous shrooming</b> and the <b>theme</b>.</p>
   <p class="foot">Click the dog in the top left to let it roam the page – or send it back to its basket.</p>
 </dialog>
-<script src="/static/js/shellsniffer.js"></script>
+<!-- classic scripts sharing one global scope; the order matters (journal.js starts the app) -->
+<script src="/static/js/core.js"></script>
+<script src="/static/js/search.js"></script>
+<script src="/static/js/settings.js"></script>
+<script src="/static/js/import.js"></script>
+<script src="/static/js/ask.js"></script>
+<script src="/static/js/about.js"></script>
+<script src="/static/js/dog.js"></script>
+<script src="/static/js/magic.js"></script>
+<script src="/static/js/live.js"></script>
+<script src="/static/js/journal.js"></script>
 </body>
 </html>

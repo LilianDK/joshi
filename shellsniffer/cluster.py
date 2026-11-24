@@ -1,61 +1,13 @@
-"""Topic clustering: assigns a work session (a block of commands) to a domain and topic
-and writes short documentation for it. Uses a local Ollama model, with a heuristic
-fallback when Ollama is not reachable."""
-import json
+"""Documenting a work session: domain, topic, title and an ASD-STE100-style summary.
+
+:func:`classify` asks the Ollama chat model (:func:`classify_llm`) and falls back to a simple
+heuristic (:func:`classify_heuristic`) when Ollama is disabled, not reachable or answers nonsense.
+All requests go through :mod:`ollama`.
+"""
 import os
-import re
-import urllib.request
 
+from . import ollama
 from . import ontology as onto
-
-OLLAMA_URL = os.environ.get("SHELLSNIFFER_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-PREFERRED_MODEL = os.environ.get("SHELLSNIFFER_OLLAMA_MODEL", "")
-
-_model_cache: dict = {"name": None}
-
-
-class OllamaDisabled(RuntimeError):
-    """Ollama is switched off in the UI (setting "ollama"): no request may be sent."""
-
-
-def enabled() -> bool:
-    from .state import settings
-    return settings.get("ollama", True)
-
-
-def _http_json(url: str, payload: dict | None = None, timeout: float = 120):
-    """The only place that talks to Ollama – refuses while Ollama is disabled."""
-    if not enabled():
-        raise OllamaDisabled("Ollama is disabled in shellSniffer – enable it at the Ollama chip or in ⚙ Settings")
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def pick_model() -> str | None:
-    """Picks the configured model, or the first installed chat model."""
-    try:
-        tags = _http_json(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        _model_cache["name"] = None
-        return None
-    names = [m["name"] for m in tags.get("models", [])]
-    names = [n for n in names if "embed" not in n.lower()]
-    if not names:
-        _model_cache["name"] = None
-        return None
-    if PREFERRED_MODEL:
-        for n in names:
-            if n == PREFERRED_MODEL or n.split(":")[0] == PREFERRED_MODEL:
-                _model_cache["name"] = n
-                return n
-    _model_cache["name"] = names[0]
-    return names[0]
-
-
-def current_model() -> str | None:
-    return _model_cache["name"]
 
 
 DOMAIN_TEXT = "\n".join(f'- {k}: {n} ({d})' for k, n, d in onto.DOMAINS)
@@ -122,7 +74,7 @@ def build_user_prompt(events: list[dict], topics: list[dict], meta: dict) -> str
         if out:
             lines.append("    Output: " + out.replace("\n", "\n    "))
     ctx = f'Project (from the directory): {meta.get("project") or "unknown"}\nTools: {", ".join(meta.get("tools") or []) or "-"}'
-    return (f"Existing topics:\n" + ("\n".join(tl) or "(no topics yet)") +
+    return ("Existing topics:\n" + ("\n".join(tl) or "(no topics yet)") +
             f"\n\n{ctx}\n\nWork session:\n" + "\n".join(lines))
 
 
@@ -143,23 +95,16 @@ def _resolve(topic_id, new_topic, domain: str, topics: list[dict]) -> tuple[int 
 
 
 def classify_llm(events: list[dict], topics: list[dict], meta: dict) -> dict | None:
-    model = current_model() or pick_model()
+    """The model's answer, validated; None if there is no usable answer."""
+    model = ollama.current_chat_model() or ollama.chat_model()
     if not model:
         return None
-    payload = {
-        "model": model, "stream": False, "format": "json", "options": {"temperature": 0.2},
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(events, topics, meta)},
-        ],
-    }
     try:
-        res = _http_json(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
-        data = json.loads(res.get("message", {}).get("content", ""))
+        data = ollama.chat_json(model, SYSTEM_PROMPT, build_user_prompt(events, topics, meta))
     except Exception:
-        _model_cache["name"] = None
+        ollama.forget_chat_model()     # look for a model again next time
         return None
-    if not isinstance(data, dict):
+    if not data:
         return None
     domain = str(data.get("domain") or "").strip().lower()
     if domain not in onto.DOMAIN_KEYS:
@@ -186,6 +131,7 @@ TOOL_TOPIC_NAMES = {
 
 
 def classify_heuristic(events: list[dict], topics: list[dict], meta: dict) -> dict:
+    """Without a model: topic from the main tool (or project), one procedure step per command."""
     tools = meta.get("tools") or []
     domain = onto.domain_for_tools(tools)
     main = next((t for t in tools if t in onto.TOOL_DOMAIN), tools[0] if tools else None)
@@ -207,6 +153,7 @@ def classify_heuristic(events: list[dict], topics: list[dict], meta: dict) -> di
 
 
 def classify(events: list[dict], topics: list[dict], meta: dict) -> dict:
+    """Returns {topic_id | new_topic, domain, title, summary, method}."""
     return classify_llm(events, topics, meta) or classify_heuristic(events, topics, meta)
 
 
@@ -223,16 +170,12 @@ Only merge when you are sure."""
 
 
 def consolidate_llm(topics: list[dict]) -> dict | None:
-    model = current_model() or pick_model()
+    """Model-based tidy-up of the topic list (API only, no button in the UI at the moment)."""
+    model = ollama.current_chat_model() or ollama.chat_model()
     if not model or not topics:
         return None
     listing = "\n".join(f'- id={t["id"]}: {t["name"]} — {t["description"] or ""}' for t in topics)
-    payload = {"model": model, "stream": False, "format": "json", "options": {"temperature": 0.1},
-               "messages": [{"role": "system", "content": CONSOLIDATE_PROMPT},
-                            {"role": "user", "content": "Topics:\n" + listing}]}
     try:
-        res = _http_json(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
-        data = json.loads(res.get("message", {}).get("content", ""))
-        return data if isinstance(data, dict) else None
+        return ollama.chat_json(model, CONSOLIDATE_PROMPT, "Topics:\n" + listing, temperature=0.1)
     except Exception:
         return None

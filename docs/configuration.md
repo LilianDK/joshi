@@ -13,7 +13,7 @@ shellSniffer is configured with environment variables. Set them before starting 
 | `SHELLSNIFFER_EMBED_MODEL` | first installed embedding model, else the chat model | Ollama model for the hybrid search (*Sniff logs with shroom*), e.g. `nomic-embed-text` |
 | `SHELLSNIFFER_EMBED_PER_SEARCH` | `200` | how many commands without a vector are embedded per shroom search |
 | `SHELLSNIFFER_DOC_LANGUAGE` | `English` | language of titles, summaries and new topic names, e.g. `German` |
-| `SHELLSNIFFER_DIR` | `~/.shellsniffer` | data folder (database, token, output buffers) |
+| `SHELLSNIFFER_DIR` | `~/.shellsniffer` | data folder (database, token, output buffers). Data from an old `~/.joshi` folder is only taken over into the default folder |
 | `SHELLSNIFFER_ATUIN` | `1` | initial mode on the very first start: `0` = without Atuin. Afterwards the **With Atuin / Without Atuin** switch in the UI decides |
 | `SHELLSNIFFER_HONEYPOT` | `0` | initial state of the **Honeypot log** switch (`1` = on; only active without Atuin) |
 | `SHELLSNIFFER_HONEYPOT_DIR` | `<shellSniffer folder>/honeypot` | folder for the honeypot logs |

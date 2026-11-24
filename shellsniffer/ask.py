@@ -13,9 +13,8 @@ Only runs on an explicit question – never in the background, never while Ollam
 """
 import json
 import time
-import urllib.request
 
-from . import cluster, search
+from . import db, ollama, search
 
 MAX_DOCS = 6
 MAX_COMMANDS = 14
@@ -39,7 +38,6 @@ def _fmt_time(ts: float | None) -> str:
 
 def build_context(q: str, start: float | None, end: float | None, semantic_weight: float) -> tuple[list[dict], str]:
     """Runs the hybrid search and turns the best hits into numbered sources + prompt text."""
-    from . import db
     res = search.hybrid_search(q, MAX_COMMANDS * 2, start, end, semantic_weight)
     sources, lines = [], []
     for d in (res.get("docs") or [])[:MAX_DOCS]:
@@ -75,35 +73,20 @@ def stream_answer(q: str, start: float | None = None, end: float | None = None, 
         return (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
 
     try:
-        if not cluster.enabled():
-            raise cluster.OllamaDisabled("Ollama is disabled – enable it to ask the shroom")
+        if not ollama.enabled():
+            raise ollama.OllamaDisabled("Ollama is disabled – enable it to ask the shroom")
         sources, context = build_context(q, start, end, semantic_weight)
         yield line({"type": "sources", "sources": sources})
         if not sources:
             yield line({"type": "token", "text": "The shroom found nothing in your logs for this question."})
             yield line({"type": "done"})
             return
-        model = cluster.current_model() or cluster.pick_model()
+        model = ollama.current_chat_model() or ollama.chat_model()
         if not model:
             raise RuntimeError("no Ollama chat model available – run e.g.: ollama pull llama3.1")
         yield line({"type": "model", "model": model})
-        payload = {"model": model, "stream": True, "options": {"temperature": 0.2},
-                   "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                                {"role": "user", "content": f"Sources:\n\n{context}\n\nQuestion: {q}"}]}
-        if not cluster.enabled():
-            raise cluster.OllamaDisabled("Ollama is disabled")
-        req = urllib.request.Request(f"{cluster.OLLAMA_URL}/api/chat", data=json.dumps(payload).encode(),
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=600) as r:
-            for raw in r:
-                if not raw.strip():
-                    continue
-                chunk = json.loads(raw)
-                text = (chunk.get("message") or {}).get("content") or ""
-                if text:
-                    yield line({"type": "token", "text": text})
-                if chunk.get("done"):
-                    break
+        for text in ollama.stream_chat(model, SYSTEM_PROMPT, f"Sources:\n\n{context}\n\nQuestion: {q}"):
+            yield line({"type": "token", "text": text})
         yield line({"type": "done"})
     except Exception as e:   # shown in the answer box
         yield line({"type": "error", "detail": str(e)})

@@ -70,11 +70,34 @@ The capture mode is a setting stored in the database (`meta`) and switched in th
 
 ### Ollama on / off
 
-The setting `ollama` is checked in `cluster._http_json`, the only function that talks to Ollama: while it is off, every request raises `OllamaDisabled` before anything is sent. The model probe, continuous shrooming and SniffMagic (`409`) stop, the hybrid search answers `503`.
+The setting `ollama` is checked in `ollama.py`, the only module that talks to Ollama (`request_json`, `stream_chat`, `embed`): while it is off, every request raises `OllamaDisabled` before anything is sent. The model probe, continuous shrooming and SniffMagic (`409`) stop, the hybrid search answers `503`.
 
 ## Code layout
 
-The server is split into small modules; `shellsniffer/app.py` holds only the HTTP layer and lists all modules in its docstring. The web UI is plain HTML/CSS/JS without a build step (`static/index.html`, `static/css/shellsniffer.css`, `static/js/shellsniffer.js`), served under `/static`.
+The server is a small FastAPI app split into modules with one job each; `shellsniffer/app.py` holds only the HTTP layer and lists all modules in its docstring.
+
+| Module | Job |
+|---|---|
+| `app.py` | HTTP API, WebSocket, starts/stops the background workers |
+| `config.py` | paths, environment variables, access token, migration of old data folders |
+| `db.py` | SQLite connection, schema, migrations, FTS5 indexes (`events_fts`, `docs_fts`) |
+| `state.py` | UI settings, worker status, live updates (`broadcast`) |
+| `ingest.py` | storing commands and outputs from hooks, Atuin and imports |
+| `atuin.py`, `atuin_import.py` | reading Atuin's history (Windows + WSL) and the import worker |
+| `honeypot.py` | per-shell plain-text logs |
+| `importer.py` | batch import of collected dumps, format detection |
+| `ollama.py` | the only Ollama client – chat, streaming, embeddings; refuses while Ollama is disabled |
+| `cluster.py` | one session → domain, topic, title, ASD-STE100 summary (model or heuristic) |
+| `documenter.py` | SniffMagic queue worker, ontology housekeeping |
+| `embeddings.py` | vectors for commands and documentation, continuous shrooming worker |
+| `search.py` | BM25 search and hybrid search (weighted RRF) |
+| `ask.py` | ask the shroom (RAG answer, streamed) |
+| `timerange.py` | time-range validation and SQL conditions |
+| `ontology.py`, `redact.py` | domains/projects/tools; secret filter |
+
+The web UI is plain HTML/CSS/JS without a build step, served under `/static`: `index.html`, `css/shellsniffer.css` and one script per area in `js/` (`core`, `search`, `settings`, `import`, `ask`, `about`, `dog`, `magic`, `live`, `journal`). They are classic scripts sharing one global scope and are loaded in this order; `journal.js` starts the app.
+
+`tests/smoke_test.py` starts the server against a temporary data folder and a built-in fake Ollama and checks the main features end to end.
 
 ## Data model
 

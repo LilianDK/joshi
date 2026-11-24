@@ -31,6 +31,9 @@ settings: dict[str, bool] = {
 }
 
 
+SETTING_KEYS = tuple(settings)   # the switches the UI may change via POST /api/settings
+
+
 def save_setting(key: str, value: bool) -> None:
     settings[key] = value
     db.meta_set(f"setting_{key}", "1" if value else "0")

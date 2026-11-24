@@ -14,7 +14,7 @@ import asyncio
 import json
 import time
 
-from . import cluster, db, embeddings
+from . import cluster, db, embeddings, ollama, timerange
 from . import ontology as onto
 from .config import IDLE_SECONDS
 from .ingest import block_info
@@ -33,21 +33,9 @@ def block_meta(events: list[dict]) -> dict:
 _queue: set[int] = set()   # ids of the sessions SniffMagic was asked to document
 
 
-def _range_filter(start: float | None, end: float | None) -> tuple[str, list]:
-    """SQL condition for sessions that overlap the time range [start, end] (Unix seconds)."""
-    sql, args = "", []
-    if start is not None:
-        sql += " AND end_ts >= ?"
-        args.append(start)
-    if end is not None:
-        sql += " AND start_ts <= ?"
-        args.append(end)
-    return sql, args
-
-
 def magic_preview(start: float | None = None, end: float | None = None) -> dict:
     """How many sessions a SniffMagic run on this time range would touch."""
-    cond, args = _range_filter(start, end)
+    cond, args = timerange.sessions_sql(start, end)
     c = db.one(f"SELECT sum(status IN ('open','ready')) AS waiting, sum(status='done') AS documented,"
                f" coalesce(sum(CASE WHEN status IN ('open','ready') THEN n END),0) AS commands"
                f" FROM blocks WHERE 1=1{cond}", tuple(args))
@@ -65,7 +53,7 @@ def request_clustering(start: float | None = None, end: float | None = None,
     """
     with db.lock:
         if block_ids is None:
-            cond, args = _range_filter(start, end)
+            cond, args = timerange.sessions_sql(start, end)
             states = "('open','ready','done')" if include_done else "('open','ready')"
             block_ids = [r[0] for r in db.conn.execute(f"SELECT id FROM blocks WHERE status IN {states}{cond}", args)]
         db.conn.executemany("UPDATE blocks SET status='ready' WHERE id=?", [(i,) for i in block_ids])
@@ -95,7 +83,7 @@ def _store_result(b: dict, res: dict, meta: dict, now: float) -> int:
 
 async def cluster_worker() -> None:
     """Works through the queue after :func:`request_clustering`; idle otherwise."""
-    status["model"] = await asyncio.to_thread(cluster.pick_model)   # only lists the models, runs nothing
+    status["model"] = await asyncio.to_thread(ollama.chat_model)   # only lists the models, runs nothing
     status["ollama"] = bool(status["model"])
     while True:
         try:
@@ -125,7 +113,7 @@ async def cluster_worker() -> None:
             status["clustering"] = b["id"]
             await broadcast_status()
             res = await asyncio.to_thread(cluster.classify, events, topics, meta)
-            status["model"] = cluster.current_model()
+            status["model"] = ollama.current_chat_model()
             status["ollama"] = bool(status["model"])
             tid = _store_result(b, res, meta, now)
             await asyncio.to_thread(embeddings.embed_doc_now, b["id"])   # make the new documentation searchable by meaning
@@ -147,10 +135,10 @@ async def model_probe() -> None:
     """Checks every minute whether Ollama is reachable (lists models only, never runs one)."""
     while True:
         await asyncio.sleep(60)
-        if not cluster.enabled():
+        if not ollama.enabled():
             continue
         if not status["clustering"]:
-            status["model"] = await asyncio.to_thread(cluster.pick_model)
+            status["model"] = await asyncio.to_thread(ollama.chat_model)
             status["ollama"] = bool(status["model"])
             await broadcast_status()
 
