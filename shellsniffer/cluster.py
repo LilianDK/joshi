@@ -1,55 +1,19 @@
-"""Topic clustering: assigns a work session (a block of commands) to a domain and topic
-and writes short documentation for it. Uses a local Ollama model, with a heuristic
-fallback when Ollama is not reachable."""
-import json
+"""Documenting a work session: domain, topic, title and an ASD-STE100-style summary.
+
+:func:`classify` asks the Ollama chat model (:func:`classify_llm`) and falls back to a simple
+heuristic (:func:`classify_heuristic`) when Ollama is disabled, not reachable or answers nonsense.
+All requests go through :mod:`ollama`.
+"""
 import os
-import re
-import urllib.request
 
+from . import ollama
 from . import ontology as onto
-
-OLLAMA_URL = os.environ.get("JOSHI_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-PREFERRED_MODEL = os.environ.get("JOSHI_OLLAMA_MODEL", "")
-
-_model_cache: dict = {"name": None}
-
-
-def _http_json(url: str, payload: dict | None = None, timeout: float = 120):
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def pick_model() -> str | None:
-    """Picks the configured model, or the first installed chat model."""
-    try:
-        tags = _http_json(f"{OLLAMA_URL}/api/tags", timeout=3)
-    except Exception:
-        _model_cache["name"] = None
-        return None
-    names = [m["name"] for m in tags.get("models", [])]
-    names = [n for n in names if "embed" not in n.lower()]
-    if not names:
-        _model_cache["name"] = None
-        return None
-    if PREFERRED_MODEL:
-        for n in names:
-            if n == PREFERRED_MODEL or n.split(":")[0] == PREFERRED_MODEL:
-                _model_cache["name"] = n
-                return n
-    _model_cache["name"] = names[0]
-    return names[0]
-
-
-def current_model() -> str | None:
-    return _model_cache["name"]
 
 
 DOMAIN_TEXT = "\n".join(f'- {k}: {n} ({d})' for k, n, d in onto.DOMAINS)
 
 # Language of titles, summaries and new topic names (the UI itself is English)
-DOC_LANGUAGE = os.environ.get("JOSHI_DOC_LANGUAGE", "English")
+DOC_LANGUAGE = os.environ.get("SHELLSNIFFER_DOC_LANGUAGE", "English")
 
 SYSTEM_PROMPT = f"""You are an assistant that documents shell work and files it into a fixed structure.
 
@@ -63,16 +27,29 @@ Rules:
   Create a new topic only if none fits. Prefer a slightly more general existing topic over a duplicate
   with a different name.
 - New topic names: short (2-4 words, in {DOC_LANGUAGE}), without repeating the domain name.
-- Write a title and a summary of the session in {DOC_LANGUAGE}, in Markdown: what was done, probably why,
-  what worked / what failed, and the most important commands as a code block.
-  Do not invent anything that does not follow from the commands.
+- Write a title and a summary of the session in {DOC_LANGUAGE}. The summary is technical documentation
+  in the style of ASD-STE100 Simplified Technical English (follow the rules closely, about 80 %;
+  command names, flags, paths and product names are always allowed as they are):
+  * Short sentences: procedures max. 20 words, descriptions max. 25 words. One instruction per sentence.
+  * Procedures in the imperative ("Install the package."), active voice, simple present tense.
+  * Simple, common words with one meaning each. Use articles. Avoid "-ing" forms and long noun clusters.
+  * Use exactly this Markdown structure:
+      **Purpose:** <one sentence: what the work was for>
+      **Procedure:**
+      1. <step> [n]
+      2. <step> [n][m]
+      **Result:** <what worked; what failed and why, if visible>
+    Each step ends with the number(s) of the command(s) it is based on, e.g. [3] or [4][5],
+    using the numbers [n] of the work session below. Combine trivial commands (cd, ls) into one step.
+  * Add "**Note:**" only for an important warning or follow-up.
+  Do not invent anything that does not follow from the commands and their output.
 
 Reply ONLY with JSON in this format:
 {{"domain": "<domain key>",
  "topic_id": <id of an existing topic or null>,
  "new_topic": {{"name": "...", "description": "One sentence on what it is about"}} or null,
  "title": "Short title of the session",
- "summary": "Markdown summary"}}"""
+ "summary": "Markdown summary in the structure above"}}"""
 
 
 def _clip(s: str | None, n: int) -> str:
@@ -91,13 +68,13 @@ def build_user_prompt(events: list[dict], topics: list[dict], meta: dict) -> str
         for t in by_dom.get(k, []):
             tl.append(f'- id={t["id"]} [{k}] {t["name"]} — {t["description"] or ""}')
     lines = []
-    for e in events:
-        lines.append(f'[{e["shell"]}] {e["cwd"] or "?"} $ {e["command"]}   (exit {e["exit_code"]})')
+    for i, e in enumerate(events, 1):   # [n] = the number the summary refers to (same order as "All commands" in the UI)
+        lines.append(f'[{i}] ({e["shell"]}) {e["cwd"] or "?"} $ {e["command"]}   (exit {e["exit_code"]})')
         out = _clip(e.get("output"), 600)
         if out:
             lines.append("    Output: " + out.replace("\n", "\n    "))
     ctx = f'Project (from the directory): {meta.get("project") or "unknown"}\nTools: {", ".join(meta.get("tools") or []) or "-"}'
-    return (f"Existing topics:\n" + ("\n".join(tl) or "(no topics yet)") +
+    return ("Existing topics:\n" + ("\n".join(tl) or "(no topics yet)") +
             f"\n\n{ctx}\n\nWork session:\n" + "\n".join(lines))
 
 
@@ -118,23 +95,16 @@ def _resolve(topic_id, new_topic, domain: str, topics: list[dict]) -> tuple[int 
 
 
 def classify_llm(events: list[dict], topics: list[dict], meta: dict) -> dict | None:
-    model = current_model() or pick_model()
+    """The model's answer, validated; None if there is no usable answer."""
+    model = ollama.current_chat_model() or ollama.chat_model()
     if not model:
         return None
-    payload = {
-        "model": model, "stream": False, "format": "json", "options": {"temperature": 0.2},
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(events, topics, meta)},
-        ],
-    }
     try:
-        res = _http_json(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
-        data = json.loads(res.get("message", {}).get("content", ""))
+        data = ollama.chat_json(model, SYSTEM_PROMPT, build_user_prompt(events, topics, meta))
     except Exception:
-        _model_cache["name"] = None
+        ollama.forget_chat_model()     # look for a model again next time
         return None
-    if not isinstance(data, dict):
+    if not data:
         return None
     domain = str(data.get("domain") or "").strip().lower()
     if domain not in onto.DOMAIN_KEYS:
@@ -161,6 +131,7 @@ TOOL_TOPIC_NAMES = {
 
 
 def classify_heuristic(events: list[dict], topics: list[dict], meta: dict) -> dict:
+    """Without a model: topic from the main tool (or project), one procedure step per command."""
     tools = meta.get("tools") or []
     domain = onto.domain_for_tools(tools)
     main = next((t for t in tools if t in onto.TOOL_DOMAIN), tools[0] if tools else None)
@@ -173,14 +144,16 @@ def classify_heuristic(events: list[dict], topics: list[dict], meta: dict) -> di
         name = "General"
     tid, nt, domain = _resolve(None, {"name": name, "description": f"Sessions about {name} (detected heuristically)."},
                                domain, topics)
-    cmds = "\n".join(e["command"] for e in events)
-    failed = sum(1 for e in events if e.get("exit_code") not in (0, None))
-    summary = f"{len(events)} commands" + (f", {failed} failed" if failed else "") + f".\n\n```\n{cmds}\n```"
+    failed = [i for i, e in enumerate(events, 1) if e.get("exit_code") not in (0, None)]
+    steps = "\n".join(f"{i}. Run `{e['command'].splitlines()[0][:120]}`. [{i}]" for i, e in enumerate(events, 1))
+    summary = (f"**Purpose:** Work with {name}.\n\n**Procedure:**\n{steps}\n\n**Result:** {len(events)} commands"
+               + (f", {len(failed)} failed: " + "".join(f"[{i}]" for i in failed) if failed else ", all successful") + ".")
     return {"topic_id": tid, "new_topic": nt, "domain": domain,
             "title": (events[0]["command"][:60] if events else ""), "summary": summary, "method": "heuristic"}
 
 
 def classify(events: list[dict], topics: list[dict], meta: dict) -> dict:
+    """Returns {topic_id | new_topic, domain, title, summary, method}."""
     return classify_llm(events, topics, meta) or classify_heuristic(events, topics, meta)
 
 
@@ -197,16 +170,12 @@ Only merge when you are sure."""
 
 
 def consolidate_llm(topics: list[dict]) -> dict | None:
-    model = current_model() or pick_model()
+    """Model-based tidy-up of the topic list (API only, no button in the UI at the moment)."""
+    model = ollama.current_chat_model() or ollama.chat_model()
     if not model or not topics:
         return None
     listing = "\n".join(f'- id={t["id"]}: {t["name"]} — {t["description"] or ""}' for t in topics)
-    payload = {"model": model, "stream": False, "format": "json", "options": {"temperature": 0.1},
-               "messages": [{"role": "system", "content": CONSOLIDATE_PROMPT},
-                            {"role": "user", "content": "Topics:\n" + listing}]}
     try:
-        res = _http_json(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
-        data = json.loads(res.get("message", {}).get("content", ""))
-        return data if isinstance(data, dict) else None
+        return ollama.chat_json(model, CONSOLIDATE_PROMPT, "Topics:\n" + listing, temperature=0.1)
     except Exception:
         return None

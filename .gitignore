@@ -5,7 +5,7 @@ __pycache__/
 *.pyc
 
 # Local data – never commit captured shell history
-.joshi/
+.shellsniffer/
 .shelldoc/
 .docuduck/
 *.db
@@ -13,10 +13,11 @@ __pycache__/
 *.db-shm
 typescript-*.log
 ps-transcript-*.txt
-*.joshi-bak
+*.shellsniffer-bak
 
 # Editors / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+honeypot/

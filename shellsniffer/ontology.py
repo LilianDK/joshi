@@ -1,4 +1,4 @@
-"""Lightweight ontology for joshi.
+"""Lightweight ontology for shellSniffer.
 
 Two levels:   domain (fixed)  ->  topic (grows freely, assigned by the model or the heuristic)
 Per session:  project (derived from the working directory) and tools (first word of each command)
@@ -106,7 +106,7 @@ _ROOT_DIRS = re.compile(r"^(programming projects|projects|projekte|project|code|
 
 def project_of(cwd: str | None) -> str | None:
     """Project from the working directory: the folder below a typical projects root
-    (e.g. 'D:\\Programming Projects\\joshi\\src' -> 'joshi'), otherwise the first folder below home."""
+    (e.g. 'D:\\Programming Projects\\shellsniffer\\src' -> 'shellsniffer'), otherwise the first folder below home."""
     if not cwd:
         return None
     parts = [p for p in re.split(r"[\\/]+", cwd.strip()) if p]

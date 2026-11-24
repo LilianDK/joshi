@@ -1,18 +1,18 @@
-﻿# joshi – hook for PowerShell (Windows PowerShell 5.1 and PowerShell 7)
+﻿# shellSniffer – hook for PowerShell (Windows PowerShell 5.1 and PowerShell 7)
 # Load it at the END of your profile ($PROFILE) – after oh-my-posh/starship etc.:
-#   . "C:\path\to\joshi\hooks\joshi.ps1"
+#   . "C:\path\to\shellsniffer\hooks\shellsniffer.ps1"
 # (install.ps1 does this for you.)
 #
 # Options (environment variables, set before loading):
-#   $env:JOSHI_URL            = "http://127.0.0.1:8765"
-#   $env:JOSHI_CAPTURE_OUTPUT = "0"   # commands only, no output
-#   $env:JOSHI_DISABLE        = "1"   # hook off
+#   $env:SHELLSNIFFER_URL            = "http://127.0.0.1:8765"
+#   $env:SHELLSNIFFER_CAPTURE_OUTPUT = "0"   # commands only, no output
+#   $env:SHELLSNIFFER_DISABLE        = "1"   # hook off
 
-if ($env:JOSHI_DISABLE -eq "1" -or $global:__sd_loaded) { return }
+if ($env:SHELLSNIFFER_DISABLE -eq "1" -or $global:__sd_loaded) { return }
 $global:__sd_loaded = $true
 
-$global:__sd_url     = if ($env:JOSHI_URL) { $env:JOSHI_URL.TrimEnd('/') } else { "http://127.0.0.1:8765" }
-$global:__sd_dir     = Join-Path $HOME ".joshi"
+$global:__sd_url     = if ($env:SHELLSNIFFER_URL) { $env:SHELLSNIFFER_URL.TrimEnd('/') } else { "http://127.0.0.1:8765" }
+$global:__sd_dir     = Join-Path $HOME ".shellsniffer"
 $global:__sd_token   = try { (Get-Content (Join-Path $__sd_dir "token") -ErrorAction Stop -Raw).Trim() } catch { "" }
 $global:__sd_shell   = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh" } else { "powershell" }
 $global:__sd_session = "$PID-$(Get-Random)"
@@ -25,7 +25,7 @@ $global:__sd_http = New-Object System.Net.Http.HttpClient
 $global:__sd_http.Timeout = [TimeSpan]::FromSeconds(5)
 
 # --- capture output via a transcript ---------------------------------------
-if ($env:JOSHI_CAPTURE_OUTPUT -ne "0") {
+if ($env:SHELLSNIFFER_CAPTURE_OUTPUT -ne "0") {
     New-Item -ItemType Directory -Force -Path $__sd_dir | Out-Null
     $global:__sd_transcript = Join-Path $__sd_dir "ps-transcript-$PID.txt"
     try {
@@ -66,8 +66,8 @@ function global:__sd_Send($h, [int]$exitCode) {
         $start = [DateTimeOffset]::new($h.StartExecutionTime).ToUnixTimeMilliseconds()
         $dur   = [int]($h.EndExecutionTime - $h.StartExecutionTime).TotalMilliseconds
         $output = __sd_ReadOutput
-        # With Atuin, Atuin records the command; joshi adds the output and links both via
-        # Atuin's session id. (If no Atuin entry shows up, joshi records the command itself.)
+        # With Atuin, Atuin records the command; shellSniffer adds the output and links both via
+        # Atuin's session id. (If no Atuin entry shows up, shellSniffer records the command itself.)
         $path = if ($env:ATUIN_SESSION) { "/api/outputs" } else { "/api/events" }
         $session = if ($env:ATUIN_SESSION) { $env:ATUIN_SESSION } else { $global:__sd_session }
         $body = @{
@@ -84,7 +84,7 @@ function global:__sd_Send($h, [int]$exitCode) {
         $content = New-Object System.Net.Http.StringContent($body, [System.Text.Encoding]::UTF8, "application/json")
         $req = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, "$($global:__sd_url)$path")
         $req.Content = $content
-        if ($global:__sd_token) { [void]$req.Headers.TryAddWithoutValidation("X-Joshi-Token", $global:__sd_token) }
+        if ($global:__sd_token) { [void]$req.Headers.TryAddWithoutValidation("X-ShellSniffer-Token", $global:__sd_token) }
         [void]$global:__sd_http.SendAsync($req)   # do not wait -> prompt stays fast
     } catch {}
 }
