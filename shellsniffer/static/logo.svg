@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 19 12" width="190" height="120" shape-rendering="crispEdges" role="img" aria-label="shellSniffer – sniffing pixel dog">
+  <style>
+    .fur{fill:#1450a0}.ear{fill:#0b3571}.dark{fill:#071a38}.puff{fill:#9aa1ad}
+    .head{animation:sniff 1.6s steps(1,end) infinite}
+    .tail{transform-box:view-box;transform-origin:2.5px 5px;animation:wag .5s steps(1,end) infinite}
+    .puff{opacity:0;animation:puff 1.6s steps(1,end) infinite}
+    .p2{animation-delay:.2s}.p3{animation-delay:.4s}
+    @keyframes sniff{0%,30%,60%,100%{transform:translate(0,0)}15%,45%{transform:translate(0,1px)}}
+    @keyframes wag{0%{transform:rotate(-12deg)}50%{transform:rotate(12deg)}}
+    @keyframes puff{0%,10%{opacity:0}15%,35%{opacity:1}40%,100%{opacity:0}}
+    @media (prefers-reduced-motion:reduce){.head,.tail,.puff{animation:none}.puff{opacity:1}}
+  </style>
+  <!-- tail -->
+  <g class="tail"><rect class="fur" x="1" y="2" width="1" height="2"/><rect class="fur" x="2" y="4" width="1" height="1"/></g>
+  <!-- body + legs -->
+  <rect class="fur" x="2" y="5" width="8" height="4"/>
+  <rect class="fur" x="2" y="9" width="1" height="2"/><rect class="fur" x="4" y="9" width="1" height="2"/>
+  <rect class="fur" x="7" y="9" width="1" height="2"/><rect class="fur" x="9" y="9" width="1" height="2"/>
+  <!-- head, lowered to the ground: sniffing -->
+  <g class="head">
+    <rect class="fur" x="9" y="3" width="4" height="4"/>
+    <rect class="fur" x="13" y="5" width="2" height="3"/>
+    <rect class="ear" x="9" y="3" width="2" height="1"/><rect class="ear" x="10" y="4" width="1" height="3"/>
+    <rect class="dark" x="12" y="4" width="1" height="1"/>
+    <rect class="dark" x="15" y="6" width="1" height="2"/>
+  </g>
+  <!-- sniff puffs -->
+  <rect class="puff p1" x="17" y="5" width="1" height="1"/>
+  <rect class="puff p2" x="17" y="8" width="1" height="1"/>
+  <rect class="puff p3" x="18" y="10" width="1" height="1"/>
+</svg>

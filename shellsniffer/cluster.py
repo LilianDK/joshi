@@ -8,13 +8,25 @@ import urllib.request
 
 from . import ontology as onto
 
-OLLAMA_URL = os.environ.get("JOSHI_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-PREFERRED_MODEL = os.environ.get("JOSHI_OLLAMA_MODEL", "")
+OLLAMA_URL = os.environ.get("SHELLSNIFFER_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+PREFERRED_MODEL = os.environ.get("SHELLSNIFFER_OLLAMA_MODEL", "")
 
 _model_cache: dict = {"name": None}
 
 
+class OllamaDisabled(RuntimeError):
+    """Ollama is switched off in the UI (setting "ollama"): no request may be sent."""
+
+
+def enabled() -> bool:
+    from .state import settings
+    return settings.get("ollama", True)
+
+
 def _http_json(url: str, payload: dict | None = None, timeout: float = 120):
+    """The only place that talks to Ollama – refuses while Ollama is disabled."""
+    if not enabled():
+        raise OllamaDisabled("Ollama is disabled in shellSniffer – enable it at the Ollama chip or in ⚙ Settings")
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -49,7 +61,7 @@ def current_model() -> str | None:
 DOMAIN_TEXT = "\n".join(f'- {k}: {n} ({d})' for k, n, d in onto.DOMAINS)
 
 # Language of titles, summaries and new topic names (the UI itself is English)
-DOC_LANGUAGE = os.environ.get("JOSHI_DOC_LANGUAGE", "English")
+DOC_LANGUAGE = os.environ.get("SHELLSNIFFER_DOC_LANGUAGE", "English")
 
 SYSTEM_PROMPT = f"""You are an assistant that documents shell work and files it into a fixed structure.
 
@@ -63,16 +75,29 @@ Rules:
   Create a new topic only if none fits. Prefer a slightly more general existing topic over a duplicate
   with a different name.
 - New topic names: short (2-4 words, in {DOC_LANGUAGE}), without repeating the domain name.
-- Write a title and a summary of the session in {DOC_LANGUAGE}, in Markdown: what was done, probably why,
-  what worked / what failed, and the most important commands as a code block.
-  Do not invent anything that does not follow from the commands.
+- Write a title and a summary of the session in {DOC_LANGUAGE}. The summary is technical documentation
+  in the style of ASD-STE100 Simplified Technical English (follow the rules closely, about 80 %;
+  command names, flags, paths and product names are always allowed as they are):
+  * Short sentences: procedures max. 20 words, descriptions max. 25 words. One instruction per sentence.
+  * Procedures in the imperative ("Install the package."), active voice, simple present tense.
+  * Simple, common words with one meaning each. Use articles. Avoid "-ing" forms and long noun clusters.
+  * Use exactly this Markdown structure:
+      **Purpose:** <one sentence: what the work was for>
+      **Procedure:**
+      1. <step> [n]
+      2. <step> [n][m]
+      **Result:** <what worked; what failed and why, if visible>
+    Each step ends with the number(s) of the command(s) it is based on, e.g. [3] or [4][5],
+    using the numbers [n] of the work session below. Combine trivial commands (cd, ls) into one step.
+  * Add "**Note:**" only for an important warning or follow-up.
+  Do not invent anything that does not follow from the commands and their output.
 
 Reply ONLY with JSON in this format:
 {{"domain": "<domain key>",
  "topic_id": <id of an existing topic or null>,
  "new_topic": {{"name": "...", "description": "One sentence on what it is about"}} or null,
  "title": "Short title of the session",
- "summary": "Markdown summary"}}"""
+ "summary": "Markdown summary in the structure above"}}"""
 
 
 def _clip(s: str | None, n: int) -> str:
@@ -91,8 +116,8 @@ def build_user_prompt(events: list[dict], topics: list[dict], meta: dict) -> str
         for t in by_dom.get(k, []):
             tl.append(f'- id={t["id"]} [{k}] {t["name"]} — {t["description"] or ""}')
     lines = []
-    for e in events:
-        lines.append(f'[{e["shell"]}] {e["cwd"] or "?"} $ {e["command"]}   (exit {e["exit_code"]})')
+    for i, e in enumerate(events, 1):   # [n] = the number the summary refers to (same order as "All commands" in the UI)
+        lines.append(f'[{i}] ({e["shell"]}) {e["cwd"] or "?"} $ {e["command"]}   (exit {e["exit_code"]})')
         out = _clip(e.get("output"), 600)
         if out:
             lines.append("    Output: " + out.replace("\n", "\n    "))
@@ -173,9 +198,10 @@ def classify_heuristic(events: list[dict], topics: list[dict], meta: dict) -> di
         name = "General"
     tid, nt, domain = _resolve(None, {"name": name, "description": f"Sessions about {name} (detected heuristically)."},
                                domain, topics)
-    cmds = "\n".join(e["command"] for e in events)
-    failed = sum(1 for e in events if e.get("exit_code") not in (0, None))
-    summary = f"{len(events)} commands" + (f", {failed} failed" if failed else "") + f".\n\n```\n{cmds}\n```"
+    failed = [i for i, e in enumerate(events, 1) if e.get("exit_code") not in (0, None)]
+    steps = "\n".join(f"{i}. Run `{e['command'].splitlines()[0][:120]}`. [{i}]" for i, e in enumerate(events, 1))
+    summary = (f"**Purpose:** Work with {name}.\n\n**Procedure:**\n{steps}\n\n**Result:** {len(events)} commands"
+               + (f", {len(failed)} failed: " + "".join(f"[{i}]" for i in failed) if failed else ", all successful") + ".")
     return {"topic_id": tid, "new_topic": nt, "domain": domain,
             "title": (events[0]["command"][:60] if events else ""), "summary": summary, "method": "heuristic"}
 

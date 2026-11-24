@@ -1,16 +1,16 @@
-# joshi – hook for bash (WSL, Git Bash, Linux)
+# shellSniffer – hook for bash (WSL, Git Bash, Linux)
 # Source it at the end of ~/.bashrc (the installers do this for you):
-#   source /pfad/zu/joshi/hooks/joshi.bash
+#   source /pfad/zu/shellsniffer/hooks/shellsniffer.bash
 #
 # Options (set before sourcing):
-#   JOSHI_URL=http://host:8765    server address (default: localhost; in WSL the Windows host)
-#   JOSHI_CAPTURE_OUTPUT=0        capture commands only, no output
-#   JOSHI_DISABLE=1               disable the hook entirely
+#   SHELLSNIFFER_URL=http://host:8765    server address (default: localhost; in WSL the Windows host)
+#   SHELLSNIFFER_CAPTURE_OUTPUT=0        capture commands only, no output
+#   SHELLSNIFFER_DISABLE=1               disable the hook entirely
 
 [[ $- == *i* ]] || return 0              # interactive shells only
-[[ -n "$JOSHI_DISABLE" ]] && return 0
-[[ -n "$__JOSHI_LOADED" ]] && return 0
-__JOSHI_LOADED=1
+[[ -n "$SHELLSNIFFER_DISABLE" ]] && return 0
+[[ -n "$__SHELLSNIFFER_LOADED" ]] && return 0
+__SHELLSNIFFER_LOADED=1
 
 # --- detect environment -----------------------------------------------------
 __sd_shell="bash"
@@ -21,22 +21,22 @@ elif [[ -n "$MSYSTEM" ]]; then
   __sd_shell="gitbash"
 fi
 
-# Token + server address: the server stores its token in ~/.joshi/token (%USERPROFILE%\.joshi\token on Windows)
+# Token + server address: the server stores its token in ~/.shellsniffer/token (%USERPROFILE%\.shellsniffer\token on Windows)
 if [[ -n "$__sd_is_wsl" ]]; then
   __sd_winhome="$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')" 2>/dev/null)"
-  __sd_tokfile="${__sd_winhome}/.joshi/token"
-  if [[ -z "$JOSHI_URL" ]]; then
+  __sd_tokfile="${__sd_winhome}/.shellsniffer/token"
+  if [[ -z "$SHELLSNIFFER_URL" ]]; then
     # WSL2 with "mirrored" networking reaches Windows via localhost, otherwise via the gateway
     if curl -s -m 0.3 -o /dev/null http://127.0.0.1:8765/api/status 2>/dev/null; then
-      JOSHI_URL="http://127.0.0.1:8765"
+      SHELLSNIFFER_URL="http://127.0.0.1:8765"
     else
-      JOSHI_URL="http://$(ip route show default 2>/dev/null | awk '{print $3; exit}'):8765"
+      SHELLSNIFFER_URL="http://$(ip route show default 2>/dev/null | awk '{print $3; exit}'):8765"
     fi
   fi
 else
-  __sd_tokfile="$HOME/.joshi/token"
+  __sd_tokfile="$HOME/.shellsniffer/token"
 fi
-JOSHI_URL="${JOSHI_URL:-http://127.0.0.1:8765}"
+SHELLSNIFFER_URL="${SHELLSNIFFER_URL:-http://127.0.0.1:8765}"
 __sd_token="$(cat "$__sd_tokfile" 2>/dev/null)"
 __sd_session="$$-$RANDOM"
 __sd_host="$(hostname 2>/dev/null)"
@@ -44,19 +44,19 @@ __sd_host="$(hostname 2>/dev/null)"
 # --- capture output: wrap the session in `script` ---------------------------
 # `script` records everything shown in the terminal. After each command we read the
 # new part of the recording. Git Bash has no `script` -> commands only.
-if [[ "${JOSHI_CAPTURE_OUTPUT:-1}" == "1" && -z "$JOSHI_TYPESCRIPT" ]] && command -v script >/dev/null 2>&1 \
+if [[ "${SHELLSNIFFER_CAPTURE_OUTPUT:-1}" == "1" && -z "$SHELLSNIFFER_TYPESCRIPT" ]] && command -v script >/dev/null 2>&1 \
    && script --version 2>&1 | grep -q util-linux; then
-  mkdir -p "$HOME/.joshi"
-  export JOSHI_TYPESCRIPT="$HOME/.joshi/typescript-$$.log"
-  unset __JOSHI_LOADED
-  SHELL="$BASH" exec script -qf "$JOSHI_TYPESCRIPT"
+  mkdir -p "$HOME/.shellsniffer"
+  export SHELLSNIFFER_TYPESCRIPT="$HOME/.shellsniffer/typescript-$$.log"
+  unset __SHELLSNIFFER_LOADED
+  SHELL="$BASH" exec script -qf "$SHELLSNIFFER_TYPESCRIPT"
 fi
-if [[ -n "$JOSHI_TYPESCRIPT" && -f "$JOSHI_TYPESCRIPT" ]]; then
-  trap 'rm -f "$JOSHI_TYPESCRIPT"' EXIT
+if [[ -n "$SHELLSNIFFER_TYPESCRIPT" && -f "$SHELLSNIFFER_TYPESCRIPT" ]]; then
+  trap 'rm -f "$SHELLSNIFFER_TYPESCRIPT"' EXIT
 fi
 
 __sd_ms() { local t; t=$(date +%s%3N 2>/dev/null); [[ "$t" == *N ]] && t=$(( $(date +%s) * 1000 )); echo "$t"; }
-__sd_size() { [[ -f "$JOSHI_TYPESCRIPT" ]] && wc -c < "$JOSHI_TYPESCRIPT" | tr -d ' ' || echo 0; }
+__sd_size() { [[ -f "$SHELLSNIFFER_TYPESCRIPT" ]] && wc -c < "$SHELLSNIFFER_TYPESCRIPT" | tr -d ' ' || echo 0; }
 
 __sd_start=""
 __sd_last_hist=""
@@ -81,11 +81,11 @@ __sd_precmd() {
   if [[ -n "$__sd_start" && -n "$cmd" && "$num" != "$__sd_last_hist" ]]; then
     end="$(__sd_ms)"; dur=$(( end - __sd_start ))
     outfile=""
-    if [[ -n "$JOSHI_TYPESCRIPT" && "$size" -gt "$__sd_offset" ]]; then
+    if [[ -n "$SHELLSNIFFER_TYPESCRIPT" && "$size" -gt "$__sd_offset" ]]; then
       outfile="$(mktemp 2>/dev/null)"
       # new part of the recording without ANSI codes; everything up to and including the line
       # with the typed command (prompt echo) is dropped
-      tail -c +$(( __sd_offset + 1 )) "$JOSHI_TYPESCRIPT" | head -c 65536 \
+      tail -c +$(( __sd_offset + 1 )) "$SHELLSNIFFER_TYPESCRIPT" | head -c 65536 \
         | sed -E 's/\x1b\[[0-9;?]*[ -\/]*[@-~]//g; s/\x1b\][^\x07]*(\x07|\x1b\\)//g; s/\x1b[()][A-Z0-9]//g; s/\r$//' \
         | awk -v c="$(head -n1 <<<"$cmd")" '
             !found && index($0, c) { found = 1; next }
@@ -93,13 +93,13 @@ __sd_precmd() {
             { buf[++n] = $0 }
             END { if (!found) for (i = 2; i <= n; i++) print buf[i] }' > "$outfile"
     fi
-    # With Atuin, Atuin records the command; joshi adds the output and links both via
-    # Atuin's session id. (If no Atuin entry shows up, joshi records the command itself.)
+    # With Atuin, Atuin records the command; shellSniffer adds the output and links both via
+    # Atuin's session id. (If no Atuin entry shows up, shellSniffer records the command itself.)
     local path="/api/events" session="$__sd_session"
     if [[ -n "$ATUIN_SESSION" ]]; then path="/api/outputs"; session="$ATUIN_SESSION"; fi
     (
-      curl -s -m 3 -o /dev/null -X POST "$JOSHI_URL$path" \
-        -H "X-Joshi-Token: $__sd_token" \
+      curl -s -m 3 -o /dev/null -X POST "$SHELLSNIFFER_URL$path" \
+        -H "X-ShellSniffer-Token: $__sd_token" \
         --data-urlencode "shell=$__sd_shell" \
         --data-urlencode "host=$__sd_host" \
         --data-urlencode "session=$session" \

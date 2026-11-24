@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shellSniffer</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<script>try{const t=localStorage.getItem("shellsniffer.theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="/static/css/shellsniffer.css">
+</head>
+<body>
+<header>
+  <h1 class="brand"><img src="/logo.svg" alt="" width="38" height="24">shellSniffer</h1>
+  <nav id="views"><button data-view="live" class="on">Live</button><button data-view="journal">Journal</button></nav>
+  <span class="chip ollamachip" id="st-ollama-wrap"><label class="switch mini" title="Enable / disable Ollama. Disabled: shellSniffer never starts or contacts Ollama – SniffMagic, Sniff logs with shroom and continuous shrooming are not available."><input type="checkbox" id="ollama-on"><span></span></label><span id="st-ollama">Ollama …</span></span>
+  <span class="chip" id="st-atuin" hidden>Atuin</span>
+  <span class="chip" id="st-events">0 commands</span>
+  <span class="chip" id="st-topics">0 topics</span>
+  <span class="spacer"></span>
+  <button id="settings-btn" title="shellSniffer settings" aria-label="Settings">⚙</button>
+  <button id="info" title="What is shellSniffer?" aria-label="About shellSniffer">ⓘ</button>
+  <button id="theme" title="Switch light / dark mode">◐</button>
+  <button id="import-btn" title="Upload shell dumps someone collected (history files, transcripts, terminal logs, JSON/CSV)">📥 Import dumps</button>
+  <a class="btn" href="/api/export.md" target="_blank">Markdown export</a>
+</header>
+<main id="livemain">
+  <section id="docs">
+    <div class="toolbar"><div class="searches">
+        <input id="search" type="search" placeholder="Sniff logs – exact words (BM25): commands, output, directories …">
+        <input id="search-shroom" type="search" placeholder="🍄 Sniff logs with shroom – ask or describe, Enter = answer from your logs …"></div>
+      <button id="sopts-btn" title="SniffOptions – search settings" aria-expanded="false">🦴 SniffOptions</button>
+      <button id="cluster" title="SniffMagic: choose a time range, then Ollama sorts those sessions into topics with a title and summary. Ollama never runs on its own." aria-expanded="false">✨ SniffMagic</button></div>
+    <div id="shroom-answer" class="answer" hidden>
+      <div class="ahead"><b>🍄 The shroom says</b><span class="sohint" id="answer-meta"></span><button id="answer-close" title="Close the answer" aria-label="Close">✕</button></div>
+      <div class="md" id="answer-text"></div>
+      <div id="answer-sources"></div>
+    </div>
+    <div id="sopts" class="spanel" hidden>
+      <div class="sorow"><b>SniffOptions</b><span class="sohint">settings for sniffing the logs</span></div>
+      <div class="sorow" id="balance-row"><span class="solabel">Hybrid balance</span>
+        <span class="bal-end">BM25</span>
+        <input type="range" id="balance" min="0" max="100" step="5" value="50" aria-label="Hybrid balance: BM25 versus cosine similarity">
+        <span class="bal-end">Cosine</span>
+        <span class="sohint" id="balance-val">50 % BM25 · 50 % cosine</span></div>
+      <div class="sorow"><span class="solabel">Time range</span>
+        <label>from <input type="datetime-local" id="so-start" step="60"></label>
+        <label>to <input type="datetime-local" id="so-end" step="60"></label></div>
+      <div class="sorow"><span class="solabel"></span>
+        <button data-preset="1h">Last hour</button><button data-preset="today">Today</button><button data-preset="7d">Last 7 days</button><button data-preset="30d">Last 30 days</button><button data-preset="">Any time</button></div>
+    </div>
+    <div id="magic" class="spanel" hidden>
+      <div class="sorow"><b>✨ SniffMagic</b><span class="sohint">a local Ollama model sorts your sessions into topics and writes a title and summary for each</span></div>
+      <div class="sorow"><span class="solabel">Time range</span>
+        <label>from <input type="datetime-local" id="mg-start" step="60"></label>
+        <label>to <input type="datetime-local" id="mg-end" step="60"></label></div>
+      <div class="sorow"><span class="solabel"></span>
+        <button data-mpreset="1h">Last hour</button><button data-mpreset="today">Today</button><button data-mpreset="7d">Last 7 days</button><button data-mpreset="30d">Last 30 days</button><button data-mpreset="">Everything</button></div>
+      <div class="sorow"><span class="solabel"></span>
+        <label><input type="checkbox" id="mg-redo"> also re-document sessions that are already documented</label></div>
+      <div class="sorow"><span class="solabel"></span><span id="mg-preview" class="sohint">…</span></div>
+      <div class="sorow"><span class="solabel"></span>
+        <button id="mg-go" class="go">✨ Start SniffMagic</button><button id="mg-cancel">Cancel</button></div>
+    </div>
+    <div id="topics"><div class="empty">No documentation yet. Work in an observed shell, then click <b>SniffMagic</b> – Ollama turns your sessions into topics.</div></div>
+  </section>
+  <section id="live">
+    <div class="head"><span class="pulse" id="pulse"></span><b>Live shell</b><span class="spacer"></span><span id="conn" style="font-size:12px;color:var(--term-muted)">connecting …</span></div>
+    <div id="filters"></div>
+    <div id="pending"></div>
+    <div id="stream"><button id="follow">↓ Latest</button></div>
+  </section>
+</main>
+<main id="journal" hidden>
+  <section id="jgraph">
+    <div class="jtoolbar"><b>Journal</b><span class="jhint">Days on the left, topics on the right. The thicker the line, the more commands went into that topic on that day.</span>
+      <span class="spacer"></span>
+      <select id="jrange"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="0">All days</option></select></div>
+    <div class="jfilters">
+      <select id="jlevel" title="Right column"><option value="topic">Right: topics</option><option value="domain">Right: domains</option></select>
+      <select id="jdomain"><option value="">All domains</option></select>
+      <select id="jproject"><option value="">All projects</option></select>
+      <select id="jtool"><option value="">All tools</option></select>
+    </div>
+    <div id="jsvgwrap"></div>
+  </section>
+  <aside id="jday"></aside>
+  <div id="jtip" hidden></div>
+</main>
+
+<!-- the roaming dog: appears somewhere on the UI, walks a bit, sniffs, disappears -->
+<div id="roamer" aria-hidden="true"><svg viewBox="0 0 19 12" shape-rendering="crispEdges">
+  <g class="tail"><rect class="fur" x="1" y="2" width="1" height="2"/><rect class="fur" x="2" y="4" width="1" height="1"/></g>
+  <rect class="fur" x="2" y="5" width="8" height="4"/>
+  <rect class="fur legA" x="2" y="9" width="1" height="2"/><rect class="fur legB" x="4" y="9" width="1" height="2"/>
+  <rect class="fur legB" x="7" y="9" width="1" height="2"/><rect class="fur legA" x="9" y="9" width="1" height="2"/>
+  <g class="head">
+    <rect class="fur" x="9" y="3" width="4" height="4"/><rect class="fur" x="13" y="5" width="2" height="3"/>
+    <rect class="ear" x="9" y="3" width="2" height="1"/><rect class="ear" x="10" y="4" width="1" height="3"/>
+    <rect class="dark" x="12" y="4" width="1" height="1"/><rect class="dark" x="15" y="6" width="1" height="2"/>
+  </g>
+  <rect class="puff p1" x="17" y="5" width="1" height="1"/><rect class="puff p2" x="17" y="8" width="1" height="1"/><rect class="puff p3" x="18" y="10" width="1" height="1"/>
+</svg></div>
+
+<dialog id="settingsdlg" aria-labelledby="settings-title">
+  <button class="close" id="settings-close" aria-label="Close">✕</button>
+  <h2 id="settings-title">⚙ Settings</h2>
+  <p class="sohint">General settings of this shellSniffer. They are saved on the server and apply every time you open it.</p>
+  <div class="setrow">
+    <div><b>🦙 Ollama</b><div class="sohint">Local language model for SniffMagic, <i>Sniff logs with shroom</i> and continuous shrooming. <b>Disabled</b>: shellSniffer never starts or contacts Ollama, and these functions are not available. Plain search (BM25), capture and import keep working.</div></div>
+    <label class="switch"><input type="checkbox" id="set-ollama"><span></span></label>
+  </div>
+  <div class="setrow">
+    <div><b>🐚 Capture</b><div class="sohint"><i>With Atuin</i>: Atuin records the commands, the hook adds the output. <i>Without Atuin</i>: the shellSniffer hooks deliver commands and output themselves.</div></div>
+    <nav class="seg" id="set-atuin"><button data-atuin="1">With Atuin</button><button data-atuin="0">Without Atuin</button></nav>
+  </div>
+  <div class="setrow" id="set-hp-row">
+    <div><b>🍯 Honeypot log</b><div class="sohint">Only <i>without Atuin</i>: additionally write every shell session, commands and full output, to its own text file in <code id="set-hp-dir">honeypot/</code>.</div></div>
+    <label class="switch"><input type="checkbox" id="set-honeypot"><span></span></label>
+  </div>
+  <div class="setrow">
+    <div><b>🐕 Roaming dog</b><div class="sohint">The dog sniffs its way across the page now and then.</div></div>
+    <label class="switch"><input type="checkbox" id="set-dog"><span></span></label>
+  </div>
+  <div class="setrow">
+    <div><b>🍄 Continuous shrooming</b><div class="sohint">Every new command is vectorized by an Ollama model the moment it arrives (older ones are worked off too), so <i>Sniff logs with shroom</i> always covers all logs. Uses Ollama continuously while on.</div>
+      <div class="sohint" id="vec-status">off: commands are vectorized only while you search with the shroom</div></div>
+    <label class="switch" id="vec-wrap"><input type="checkbox" id="vectorize"><span></span></label>
+  </div>
+  <div class="setrow">
+    <div><b>🎨 Theme</b><div class="sohint">Light, dark, or follow the system. Remembered in this browser.</div></div>
+    <nav class="seg" id="set-theme"><button data-theme="system">System</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+  </div>
+</dialog>
+<dialog id="importdlg" aria-labelledby="import-title">
+  <button class="close" id="import-close" aria-label="Close">✕</button>
+  <h2 id="import-title">📥 Import shell dumps</h2>
+  <p>Upload shell activity that was collected earlier. The format is detected per file: <b>bash / zsh / PowerShell history</b>, <b>PowerShell transcripts</b>, <b>terminal logs</b> (prompt + command + output), shellSniffer <b>honeypot logs</b>, <b>JSON / JSONL / CSV</b> with a <code>command</code> field – anything else is read as one command per line.</p>
+  <div id="dropzone" tabindex="0">Drop files or folders here<br><span class="sohint">or</span><br>
+    <button id="pick-files">Choose files</button> <button id="pick-dir">Choose a folder</button></div>
+  <input type="file" id="files-in" multiple hidden><input type="file" id="dir-in" webkitdirectory multiple hidden>
+  <p class="sohint">Commands without a timestamp get the file's date. Uploading the same file again skips what is already there. Secrets are masked as usual. Afterwards, document the imported sessions with <b>✨ SniffMagic</b>.</p>
+  <div id="import-results"></div>
+</dialog>
+<dialog id="about" aria-labelledby="about-title">
+  <button class="close" id="about-close" aria-label="Close">✕</button>
+  <h2 id="about-title"><img src="/logo.svg" alt="" width="48" height="30">shellSniffer</h2>
+  <p>shellSniffer sniffs through your shells: it watches every command you type in PowerShell, Git Bash, WSL, bash or zsh – together with its output – and turns it into a searchable, topic-based documentation and a daily journal of your work. Everything stays on this machine.</p>
+  <h3>How it works</h3>
+  <ul>
+    <li><b>Capture</b> – small hooks in your shell profiles report each finished command and its output to this local server.</li>
+    <li><b>🦙 Ollama on / off</b> – the switch on the Ollama chip (top left, also in ⚙ Settings). <i>Disabled</i>: shellSniffer never starts or contacts Ollama; SniffMagic, <i>Sniff logs with shroom</i> and continuous shrooming are then not available. BM25 search, capture and import keep working.</li>
+    <li><b>Live</b> – the right side shows every command of every open shell as it happens.</li>
+    <li><b>✨ SniffMagic</b> – turns your sessions into documentation. Commands are grouped into <i>sessions</i> per shell window (a new one starts after 5 minutes of pause or 25 commands). Click SniffMagic, choose <b>which sessions</b> – a time range such as <i>Today</i>, <i>Last 7 days</i> or your own from/to, or <i>Everything</i> – and start it. A local Ollama model then goes through them one by one and gives each a <b>domain</b> (e.g. Version control), a <b>topic</b> (existing or new), a <b>title</b> and a <b>documentation</b> in ASD-STE100 style (Simplified Technical English, about 80 %): <i>Purpose</i>, numbered <i>Procedure</i> steps and <i>Result</i>. Each step cites its commands, e.g. <span class="cref">3</span> = command 3 of the session. The documentation is vectorized right away, so the search finds it too (📄 hits). The panel shows beforehand how many sessions are affected; tick <i>re-document</i> to redo sessions that already have a topic. Without Ollama, a simple heuristic names the topics. The model never runs unless you start it here (or use <i>re-cluster</i>).</li>
+    <li><b>Sniff logs</b> – the upper search field finds commands, output and directories, ranked with BM25 (exact words, no language model). <b>🦴 SniffOptions</b> holds the search settings: the <i>hybrid balance</i> (slider: more BM25 = exact words, more cosine = meaning) and a time range.</li>
+    <li><b>🍄 Ask the shroom</b> – press <b>Enter</b> in <i>Sniff logs with shroom</i>: the chat model answers your question below the field, using only the best matching sessions and commands from your logs, and cites them as <span class="cref">2</span>. Click a source to open its topic. While it works you see the spinning 🍄 – <i>shrooming..</i></li>
+    <li><b>🍄 Sniff logs with shroom</b> – the lower search field runs a <i>hybrid</i> search: besides the exact words (BM25), a local Ollama model compares the <i>meaning</i>, so “remove container” also finds <code>docker rm</code>. Both rankings are merged; every hit shows where it came from (<code>BM25 #n</code>, <code>🍄 similarity</code>). The first shroom search embeds your commands (a few hundred per search), so it takes a moment; an embedding model such as <code>nomic-embed-text</code> makes it fast. The model only runs while the you search in that field – unless you turn on <b>🍄 Continuous shrooming</b> in <b>⚙ Settings</b>: then every new command is vectorized in the background right away, so the shroom always covers all logs. Off by default; the progress is shown next to the switch.</li>
+    <li><b>Journal</b> – shows which topics you worked on, day by day.</li>
+  </ul>
+  <h3>Capture settings (⚙ Settings)</h3>
+  <ul>
+    <li><b>With Atuin</b> – Atuin records the commands, shellSniffer reads its history and the hook only adds the output.</li>
+    <li><b>Without Atuin</b> – shellSniffer ignores Atuin and takes commands and output straight from its own hooks. Everything still goes into the database, the live view and the search.</li>
+    <li><b>Honeypot log</b> – an <i>extra</i> for <i>Without Atuin</i> (greyed out in ⚙ Settings while <i>With Atuin</i> is selected). When ticked, every shell session is <i>additionally</i> written to its own plain-text file, commands <b>and full output</b>, so you can read, grep or archive it outside shellSniffer. Leave it off if you do not need these files – for example to save disk space or to avoid a second copy of sensitive output.</li>
+  </ul>
+  <h3>Where your shell logs are stored</h3>
+  <ul>
+    <li><b>Database</b> (all commands, output, sessions, topics): <code id="about-db">…</code></li>
+    <li><b>Honeypot log files</b> (only <i>Without Atuin</i> + <i>Honeypot log</i> ticked), one per shell session, e.g. <code>2026-11-24_pwsh_MYPC_1234.log</code>: <code id="about-hp">…</code> – <span id="about-hpstate">…</span>. The folder is created with the first logged command.</li>
+    <li><b>Temporary output buffers</b> of running shells (<code>ps-transcript-*.txt</code>, <code>typescript-*.log</code>) in <code id="about-dir">…</code></li>
+    <li><b>Markdown export</b> (top right) downloads the whole documentation as one file.</li>
+    <li><b>📥 Import dumps</b> (top right) loads shell activity someone collected earlier – history files, PowerShell transcripts, terminal logs, honeypot logs, JSON/CSV. The format is detected automatically; imported commands appear as sessions named <code>import:&lt;file&gt;</code>.</li>
+  </ul>
+  <h3>Privacy</h3>
+  <p>Passwords, tokens, API keys and similar secrets are masked before anything is stored or sent to the model. To keep a shell out entirely, set <code>SHELLSNIFFER_DISABLE=1</code> in it.</p>
+  <h3>⚙ Settings</h3>
+  <p>The gear at the top right holds the general settings, saved on the server so shellSniffer always opens with them: <b>capture</b> with / without Atuin, the <b>honeypot log</b>, the <b>roaming dog</b> on/off, <b>continuous shrooming</b> and the <b>theme</b>.</p>
+  <p class="foot">Click the dog in the top left to let it roam the page – or send it back to its basket.</p>
+</dialog>
+<script src="/static/js/shellsniffer.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
-﻿# Starts the joshi server (creates a virtual environment on first run).
+﻿# Starts the shellSniffer server (creates a virtual environment on first run).
 #   .\start.ps1              -> start the server. If WSL is installed it is also reachable from WSL
-#                              (requests not from localhost need the token from ~/.joshi/token)
+#                              (requests not from localhost need the token from ~/.shellsniffer/token)
 #   .\start.ps1 -LocalOnly   -> reachable from localhost only
 param([switch]$LocalOnly, [int]$Port = 8765)
 $ErrorActionPreference = "Stop"
@@ -83,11 +83,11 @@ $hasWsl = (Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss") -an
           @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss" -ErrorAction SilentlyContinue).Count -gt 0
 $bind = if ($hasWsl -and -not $LocalOnly) { "0.0.0.0" } else { "127.0.0.1" }
 Write-Host ""
-Write-Host "joshi is running at http://127.0.0.1:$Port" -ForegroundColor Green
+Write-Host "shellSniffer is running at http://127.0.0.1:$Port" -ForegroundColor Green
 Write-Host "Keep this window open (Ctrl+C stops the server). Nothing else will appear here."
 if ($bind -eq "0.0.0.0") { Write-Host "WSL found: the server is also reachable from WSL." }
 Write-Host "To capture commands: run .\install.ps1 once in a SECOND window,"
 Write-Host "then open NEW shell windows (PowerShell, Git Bash, WSL) and work there."
 Write-Host ""
 Start-Process "http://127.0.0.1:$Port"
-& $venvPy -m uvicorn joshi.app:app --host $bind --port $Port --log-level warning
+& $venvPy -m uvicorn shellsniffer.app:app --host $bind --port $Port --log-level warning

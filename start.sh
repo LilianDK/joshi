@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the joshi server on Linux/macOS (creates a virtual environment on first run).
+# Starts the shellSniffer server on Linux/macOS (creates a virtual environment on first run).
 #   ./start.sh                reachable from localhost only (http://127.0.0.1:8765)
 #   ./start.sh --port 9000    different port
 #   ./start.sh --no-browser   do not open a browser
@@ -38,7 +38,7 @@ if [[ ! -x $VENV/bin/python ]]; then
 fi
 
 echo
-echo "joshi is running at http://127.0.0.1:$PORT  (Ctrl+C stops the server)"
+echo "shellSniffer is running at http://127.0.0.1:$PORT  (Ctrl+C stops the server)"
 echo "To capture commands: run ./install.sh once, then open a new terminal."
 echo
 if [[ "$BROWSER" == 1 ]] && command -v xdg-open >/dev/null 2>&1; then
@@ -46,4 +46,4 @@ if [[ "$BROWSER" == 1 ]] && command -v xdg-open >/dev/null 2>&1; then
 elif [[ "$BROWSER" == 1 ]] && command -v open >/dev/null 2>&1; then
   (sleep 1.5; open "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true) &
 fi
-exec "$VENV/bin/python" -m uvicorn joshi.app:app --host 127.0.0.1 --port "$PORT" --log-level warning
+exec "$VENV/bin/python" -m uvicorn shellsniffer.app:app --host 127.0.0.1 --port "$PORT" --log-level warning
