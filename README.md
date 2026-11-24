@@ -42,7 +42,7 @@ winget install -e --id Python.Python.3.12        # 1. Python 3.10+
 winget install -e --id Ollama.Ollama             # 2. Ollama (recommended)
 ollama pull llama3.1                             #    a chat model
 ollama pull nomic-embed-text                     #    an embedding model for the hybrid search
-git clone https://github.com/LilianDK/joshi.git shellSniffer
+git clone https://github.com/LilianDK/shellSniffer.git
 cd shellSniffer
 .\start.ps1                                      # 3. start the server – keep this window open
 ```
@@ -58,7 +58,7 @@ In a **second** PowerShell window, in the same folder:
 **Linux / macOS:**
 
 ```bash
-git clone https://github.com/LilianDK/joshi.git shellSniffer && cd shellSniffer
+git clone https://github.com/LilianDK/shellSniffer.git && cd shellSniffer
 ollama pull llama3.1 && ollama pull nomic-embed-text     # optional, recommended
 bash start.sh              # terminal 1: the server (http://127.0.0.1:8765)
 bash install.sh            # terminal 2: hooks for bash and zsh – then open a new terminal
